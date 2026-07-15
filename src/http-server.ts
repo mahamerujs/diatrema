@@ -492,6 +492,9 @@ export class HttpServer {
     }
 
     protected validateProtectedRoute(method: HTTPMethod, path: string): boolean {
+        if (path.endsWith('/'))
+            path = path.slice(0, -1);
+
         return this.dependencies.container.protectedRoutes.some(route => {
             if (typeof route === 'string')
                 return this.matchRoutePattern(path, route);
