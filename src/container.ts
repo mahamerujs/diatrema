@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises';
 
 import { dynamicRequire, exists } from './helpers';
 import type { ContainerError } from './container-error';
-import type { ClassConstructor, ContainerItemID, ContainerRegistry, ErrorHandler, HTTPMethod, InitiatorHandler, MahameruContainer, MahameruMiddleware, ProtectedRoute, RouteHandler, RouteItem } from './types';
+import type { ClassConstructor, ContainerRegistry, ErrorHandler, HTTPMethod, InitiatorHandler, MahameruContainer, MahameruMiddleware, ProtectedRoute, RouteHandler, RouteItem } from './types';
 import type { ModuleError } from './module-error';
 
 /**
@@ -29,7 +29,6 @@ export class Container {
     protected _modules = new Map<ClassConstructor, any>();
     protected _errorHandler?: ErrorHandler;
     protected _notFoundHandler?: Record<HTTPMethod, RouteHandler>;
-    protected _protectedRoutes: ProtectedRoute = [];
     protected dependencies: ContainerDependencies;
     protected _initiatorHandler?: InitiatorHandler;
     public readonly options: ContainerOptions;
@@ -63,8 +62,8 @@ export class Container {
         return this._errorHandler;
     }
 
-    get protectedRoutes() {
-        return this._protectedRoutes;
+    get protectedRoutes(): ProtectedRoute {
+        return this.containerRegistry.values().find((item) => item.type === 'protected-route')?.item || [];
     }
 
     get initialized() {
@@ -113,7 +112,6 @@ export class Container {
         await this.loadMiddlewareHandler();
         await this.loadNotFoundHandlers();
         await this.loadErrorHandler();
-        await this.loadProtectedRoutes();
 
         this.#initialized = true;
     }
@@ -132,7 +130,6 @@ export class Container {
         });
 
         for (const item of items) {
-
             const fullPath = join(currentDir, item.name);
 
             if (item.isDirectory()) {
@@ -269,18 +266,34 @@ export class Container {
         }
     }
 
-    protected async loadMiddlewareHandler() {
+    protected async loadMiddlewareHandler(): Promise<boolean> {
         const middlawareHandlerPath = join(this.options.appPath, 'middleware.js');
-        const result = await dynamicRequire<Record<'default', MahameruMiddleware>>(this.options.moduleType, middlawareHandlerPath, this.options.dev);
-        const containerID: ContainerItemID = `${middlawareHandlerPath}:default`;
+        const result = await dynamicRequire<Record<'default' | 'protectedRoutes', MahameruMiddleware | ProtectedRoute>>(this.options.moduleType, middlawareHandlerPath, this.options.dev);
+        let success = false;
 
-        if (!this.containerRegistry.has(containerID) && result?.default)
-            this.containerRegistry.set(containerID, {
+        if (result?.default && !Array.isArray(result.default)) {
+            this.containerRegistry.set(`${middlawareHandlerPath}:default`, {
                 name: 'default',
                 path: middlawareHandlerPath,
                 type: 'middleware',
-                item: result?.default
+                item: result.default
             });
+
+            success = true
+        }
+
+        if (result?.protectedRoutes && Array.isArray(result.protectedRoutes)) {
+            this.containerRegistry.set(`${middlawareHandlerPath}:protectedRoutes`, {
+                name: 'protectedRoutes',
+                path: middlawareHandlerPath,
+                type: 'protected-route',
+                item: result.protectedRoutes
+            });
+
+            success = true
+        }
+
+        return success;
     }
 
     protected async loadNotFoundHandlers() {
@@ -294,14 +307,6 @@ export class Container {
         const result = await dynamicRequire<Record<'default', ErrorHandler>>(this.options.moduleType, errorHandlerPath, this.options.dev);
 
         this._errorHandler = result?.default;
-    }
-
-    protected async loadProtectedRoutes() {
-        const middlewarePath = join(this.options.appPath, 'middleware.js');
-        const result = await dynamicRequire<Record<'protectedRoutes' | 'default', ProtectedRoute>>(this.options.moduleType, middlewarePath, this.options.dev);
-
-        if (result && result.protectedRoutes)
-            this._protectedRoutes = result.protectedRoutes;
     }
 
     protected async loadInitiator() {
@@ -333,21 +338,10 @@ export class Container {
         const found = this.containerRegistry.values().find((containerItem) => containerItem.path === filePath);
 
         if (found) {
-            let module;
-
             if (found.type === 'route') {
                 return await this.loadSingleRoute(filePath, dirname(filePath), this.options.routesPath, { parentPath: dirname(filePath), name: basename(filePath) });
-            } else if (found.type === 'middleware') {
-                module = await dynamicRequire<Record<'default', MahameruMiddleware>>(this.options.moduleType, filePath, this.options.dev);
-
-                if (module) {
-                    this.containerRegistry.set(`${filePath}:default`, {
-                        ...found,
-                        item: module.default
-                    });
-
-                    return true
-                }
+            } else if (found.type === 'middleware' || found.type === 'protected-route') {
+                return await this.loadMiddlewareHandler();
             }
         }
 

@@ -78,7 +78,8 @@ export type ContainerItem =
     | { name: string; path: string; type: 'module-controller'; item: unknown }
     | { name: string; path: string; type: 'route'; item: RouteItem }
     | { name: string; path: string; type: 'instance'; item: Instances }
-    | { name: string; path: string; type: 'middleware'; item: MahameruMiddleware };
+    | { name: string; path: string; type: 'middleware'; item: MahameruMiddleware }
+    | { name: string; path: string; type: 'protected-route'; item: ProtectedRoute };
 
 export type ContainerRegistry = Map<ContainerItemID, ContainerItem>;
 export type InitiatorHandler = () => Promise<Instances>;
