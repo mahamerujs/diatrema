@@ -1,6 +1,6 @@
 {
   "name": "@mahameru/diatrema",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "The core engine of MahameruJS. Just like a volcanic diatreme, it serves as the essential conduit that powers and drives the entire framework ecosystem.",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
