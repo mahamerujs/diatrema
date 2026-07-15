@@ -1,0 +1,40 @@
+{
+  "name": "@mahameru/diatrema",
+  "version": "0.0.0",
+  "description": "The core engine of MahameruJS. Just like a volcanic diatreme, it serves as the essential conduit that powers and drives the entire framework ecosystem.",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "build": "tsup --config tsup.config.ts && node ./scripts/post-build.js",
+    "dev": "cross-env NODE_ENV=development tsup --config tsup.config.ts && node ./scripts/post-build.js"
+  },
+  "keywords": [
+    "node",
+    "framework",
+    "mahameru",
+    "mahamerujs",
+    "core",
+    "diatrema",
+    "core-engine"
+  ],
+  "author": "Bintan <hello@bintvn.co>",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "cross-env": "^10.1.0",
+    "esbuild-fix-imports-plugin": "^1.0.23",
+    "tsup": "^8.5.1",
+    "type-fest": "^5.8.0",
+    "typescript": "^6.0.3"
+  }
+}
