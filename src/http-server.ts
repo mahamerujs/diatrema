@@ -5,7 +5,7 @@ import { exists } from "./helpers";
 import type { Route } from "./route";
 import type { Container } from "./container";
 import type { MahameruResponse } from "./mahameru-response";
-import type { MahameruRequest } from "./mahameru-request";
+import { MahameruRequest } from "./mahameru-request";
 import type { HTTPMethod, MahameruMiddleware, MahameruMiddlewareContext, MahameruNext, RequestParams } from "./types";
 import type { HttpServerError } from "./http-server-error";
 import type { Logger } from "./logger";
@@ -73,6 +73,7 @@ export class HttpServer {
     protected httpServer: HTTPServerInstance
     protected isShuttingDown = false
     protected dependencies: HttpServerDependencies;
+    protected _favicon?: any;
 
     constructor(dependencies: HttpServerDependencies)
     constructor(options: Partial<HttpServerOptions>, dependencies: HttpServerDependencies)
@@ -176,7 +177,6 @@ export class HttpServer {
         const mahameruRequest = new this.dependencies.MahameruRequest(request);
         const rawReqPath = mahameruRequest.url.split('?')[0] || '/';
         const rawReqUrl = rawReqPath.replace(/\/+/g, '/');
-        const matchUrl = this.dependencies.route.normalizePathForMatching(rawReqUrl);
         const method = mahameruRequest.method;
 
         try {
@@ -195,9 +195,6 @@ export class HttpServer {
                 if (!this.#options.allowedHosts.includes(mahameruRequest.headers.host as string))
                     return this.sendResponse(response, new this.dependencies.MahameruResponse(JSON.stringify({ error: 'Forbidden' }), { status: 403 }));
 
-            if (mahameruRequest.url === '/favicon.ico')
-                return await this.handleFaviconRequest(mahameruRequest, response);
-
             if (
                 mahameruRequest.headers.origin &&
                 this.#options.allowedOrigins &&
@@ -205,13 +202,36 @@ export class HttpServer {
             )
                 return this.sendResponse(response, new this.dependencies.MahameruResponse(JSON.stringify({ error: 'Forbidden' }), { status: 403 }));
 
-            if (this.#options.trailingSlash === false && rawReqUrl.length > 1 && rawReqUrl.endsWith('/')) {
-                const cleanUrl = matchUrl;
-                const queryStr = mahameruRequest.url?.split('?')[1];
-                const redirectPath = cleanUrl + (queryStr ? `?${queryStr}` : '');
+            if (mahameruRequest.method === 'OPTIONS' && this.#options.allowedOrigins) {
+                this.handleCorsPreflight(request, response);
 
-                return this.sendResponse(response, new this.dependencies.MahameruResponse(JSON.stringify({ message: 'Redirecting to non-trailing slash URL' }), { status: 301, headers: { Location: redirectPath } }));
+                return;
             }
+
+            this.applyCorsHeaders(request, response);
+
+            if (this.#options.trailingSlash === false && rawReqUrl.length > 1 && rawReqUrl.endsWith('/')) {
+                const safeUrl = rawReqUrl.slice(0, -1);
+
+                this.sendResponse(response,
+                    new this.dependencies.MahameruResponse(
+                        JSON.stringify({ message: 'Redirecting to non-trailing slash URL' }),
+                        { status: 301, headers: { 'Location': safeUrl + (request.url?.includes('?') ? '?' + request.url.split('?')[1] : '') } }
+                    ));
+
+                return;
+            } else if (this.#options.trailingSlash === true && !rawReqUrl.endsWith('/') && !rawReqUrl.includes('.')) {
+                this.sendResponse(response,
+                    new this.dependencies.MahameruResponse(
+                        JSON.stringify({ message: 'Redirecting to non-trailing slash URL' }),
+                        { status: 301, headers: { 'Location': rawReqUrl + '/' + (request.url?.includes('?') ? '?' + request.url.split('?')[1] : '') } }
+                    ));
+
+                return;
+            }
+
+            if (mahameruRequest.url === '/favicon.ico')
+                return await this.handleFaviconRequest(mahameruRequest, response);
 
             if (rawReqPath !== rawReqUrl) {
                 const queryStr = mahameruRequest.url?.includes('?') ? '?' + mahameruRequest.url.split('?')[1] : '';
@@ -311,7 +331,9 @@ export class HttpServer {
             );
         }
 
-        const favicon = await readFile(targetFaviconPath);
+        if (!this._favicon)
+            this._favicon = await readFile(targetFaviconPath);
+
         const middlewareHandler = this.dependencies.container.middlewareHandler;
 
         if (middlewareHandler) {
@@ -322,7 +344,7 @@ export class HttpServer {
                 params: {},
                 path: request.path,
                 status: 200
-            }, false, async () => new this.dependencies.MahameruResponse(favicon, { status: 200 }));
+            }, false, async () => new this.dependencies.MahameruResponse(this._favicon, { status: 200 }));
 
             const normalized = this.normalizeMahameruResponse(middlewareResponse, 'Middleware error');
             const headers = new Headers(normalized.headers);
@@ -341,7 +363,7 @@ export class HttpServer {
             }));
         }
 
-        const faviconResponse = new this.dependencies.MahameruResponse(favicon, {
+        const faviconResponse = new this.dependencies.MahameruResponse(this._favicon, {
             status: 200,
             headers: {
                 'Content-Type': 'image/x-icon',
@@ -352,9 +374,46 @@ export class HttpServer {
         return this.sendResponse(response, faviconResponse);
     }
 
+    protected applyCorsHeaders(req: IncomingMessage, res: ServerResponse) {
+        const origin = req.headers.origin;
+
+        if (origin && this.#options.allowedOrigins?.includes(origin)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Vary', 'Origin');
+        }
+    }
+
+    protected handleCorsPreflight(req: IncomingMessage, res: ServerResponse) {
+        this.applyCorsHeaders(req, res);
+
+        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, PUT, PATCH, POST, DELETE');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        res.setHeader('Access-Control-Max-Age', '86400');
+        res.writeHead(204);
+        res.end();
+
+        this.requestLogger(res);
+    }
+
     protected sendResponse(response: DefaultHTTPResponse, mahameruResponse?: MahameruResponse) {
         if (!mahameruResponse)
             mahameruResponse = new this.dependencies.MahameruResponse(undefined, { status: 204 });
+
+        if (
+            mahameruResponse.headers.get('X-Powered-By') ||
+            mahameruResponse.headers.get('x-powered-by')
+        ) {
+            mahameruResponse.headers.delete('X-Powered-By');
+            mahameruResponse.headers.delete('x-powered-by');
+        }
+
+        if (
+            mahameruResponse.headers.get('X-Message') ||
+            mahameruResponse.headers.get('x-message')
+        ) {
+            mahameruResponse.headers.delete('X-Message');
+            mahameruResponse.headers.delete('x-message');
+        }
 
         mahameruResponse.headers.forEach((value, key) => {
             response.setHeader(key, value);
@@ -369,19 +428,21 @@ export class HttpServer {
 
         let responseBody: any;
 
-        if (typeof mahameruResponse.body === 'string' ||
+        if (
+            typeof mahameruResponse.body === 'string' ||
             mahameruResponse.body instanceof Uint8Array ||
             Buffer.isBuffer(mahameruResponse.body) ||
             mahameruResponse.body === undefined ||
-            mahameruResponse.body === null) {
-
+            mahameruResponse.body === null
+        ) {
             responseBody = mahameruResponse.body;
         } else {
             responseBody = JSON.stringify(mahameruResponse.body);
         }
 
         response.end(responseBody);
-        this.dependencies.logger.info(response.req.method, response.statusCode, response.req.url);
+
+        this.requestLogger(response);
     }
 
     protected async runMiddlewarePipeline(
@@ -510,6 +571,6 @@ export class HttpServer {
         if (!this.#options.dev)
             return
 
-        this.dependencies.logger.info(`${response.req.method} ${response.statusCode} ${response.req.url}`);
+        this.dependencies.logger.info(response.req.method, response.statusCode, response.req.url);
     }
 }
