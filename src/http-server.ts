@@ -118,6 +118,14 @@ export class HttpServer {
         });
     }
 
+    get listening(): boolean {
+        return this.httpServer.listening
+    }
+
+    get options(): HttpServerOptions {
+        return this.#options
+    }
+
     close(): Promise<void> {
         return new Promise((resolve, reject) => {
             if (!this.httpServer.listening) {
@@ -140,14 +148,6 @@ export class HttpServer {
 
     setIsShuttingDown(isShuttingDown: boolean) {
         this.isShuttingDown = isShuttingDown;
-    }
-
-    get listening(): boolean {
-        return this.httpServer.listening
-    }
-
-    get options(): HttpServerOptions {
-        return this.#options
     }
 
     public setOptions(options: Partial<HttpServerOptions>): void {
