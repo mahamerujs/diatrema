@@ -5,26 +5,31 @@ export interface Logger {
     debug(...data: any[]): void;
 }
 
-export const createLogger = (debug: boolean = false): Logger => {
+export const createLogger = (name: string | string[], debug: boolean = false): Logger => {
+    if (typeof name === 'string') {
+        name = [`[${name}]`];
+    } else {
+        name = name.map(item => `[${item}]`);
+    }
     return {
         info: (...data: any[]) => {
             if (debug) {
-                console.log('[Info]', ...data)
+                console.log(...name, '[Info]', ...data)
 
                 return
             }
         },
         error: (message, error) => {
-            console.error(`[Error] ${message}`, error);
+            console.error(...name, `[Error] ${message}`, error);
         },
         warn: (...data: any[]) => {
             if (debug) {
-                console.warn('[Warn]', ...data)
+                console.warn(...name, '[Warn]', ...data)
             }
         },
         debug: (...data: any[]) => {
             if (debug) {
-                console.debug('[Debug]', ...data)
+                console.debug(...name, '[Debug]', ...data)
             }
         }
     };
