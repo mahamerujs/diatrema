@@ -31,11 +31,6 @@ export abstract class MahameruPlugin<O extends BasePluginOptions = BasePluginOpt
         return this._generator;
     }
 
-    set outputTypesDirPath(outputTypesDirPath: string) {
-        if (this._generator)
-            this._generator.outputTypesDirPath = outputTypesDirPath;
-    }
-
     public setDiatrema(diatrema: Diatrema) {
         this.diatrema = diatrema;
     }
