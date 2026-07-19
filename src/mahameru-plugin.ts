@@ -13,7 +13,7 @@ export abstract class MahameruPlugin<O extends BasePluginOptions = BasePluginOpt
     protected _options: O;
     protected _initialized = false;
     protected _isShuttingDown = false;
-    protected _typesGenerator?: TypesGenerator;
+    protected _generator?: Generator;
 
     constructor(options: Partial<O>) {
         this._options = options as O;
@@ -27,13 +27,13 @@ export abstract class MahameruPlugin<O extends BasePluginOptions = BasePluginOpt
         return this._options;
     }
 
-    get typesGenerator() {
-        return this._typesGenerator;
+    get generator() {
+        return this._generator;
     }
 
     set outputTypesDirPath(outputTypesDirPath: string) {
-        if (this.typesGenerator)
-            this.typesGenerator.outputTypesDirPath = outputTypesDirPath;
+        if (this._generator)
+            this._generator.outputTypesDirPath = outputTypesDirPath;
     }
 
     public setDiatrema(diatrema: Diatrema) {
@@ -82,14 +82,15 @@ export abstract class MahameruPlugin<O extends BasePluginOptions = BasePluginOpt
     protected abstract terminate(): Promise<void> | void;
 }
 
-export interface BaseTypesGeneratorOptions {
+export interface BaseGeneratorOptions {
     debug?: boolean;
 }
 
-export abstract class TypesGenerator<O extends BaseTypesGeneratorOptions = BaseTypesGeneratorOptions> {
+export abstract class Generator<O extends BaseGeneratorOptions = BaseGeneratorOptions> {
     protected logger!: Logger;
     protected _diatrema!: Diatrema;
     protected _options: O;
+    protected _sourceDirPath!: string;
     protected _outputTypesDirPath!: string;
 
     constructor(options: Partial<O>) {
@@ -98,6 +99,10 @@ export abstract class TypesGenerator<O extends BaseTypesGeneratorOptions = BaseT
 
     set diatrema(diatrema: Diatrema) {
         this._diatrema = diatrema;
+    }
+
+    set sourceDirPath(sourceDirPath: string) {
+        this._sourceDirPath = sourceDirPath;
     }
 
     set outputTypesDirPath(outputTypesDirPath: string) {
