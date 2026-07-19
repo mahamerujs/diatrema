@@ -49,13 +49,13 @@ const onSuccess = async () => {
 
         await writeFile('dist/package.json', JSON.stringify(packageJson, null, 2), 'utf-8');
         await copyFile('README.md', 'dist/README.md');
-        await cp('scripts', join('dist', 'scripts'), { recursive: true });
     } catch (error) {
         console.error(error);
     }
 }
 
 rmSync('dist.tgz', { force: true, recursive: true });
+rmSync('dist', { force: true, recursive: true });
 
 export default defineConfig({
     bundle: false,
