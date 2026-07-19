@@ -106,8 +106,9 @@ export default class Diatrema extends EventEmitter<DiatremaEvents> {
             return
 
         if (changedFile) {
-            // if (await this.dependencies.container.onFileChanged(changedFile))
-            //     this.logger.debug(`File changed: ${changedFile}`);
+            for (const [_name, plugin] of this._plugins.entries()) {
+                await plugin.onDevHRM(changedFile);
+            }
         }
     }
 

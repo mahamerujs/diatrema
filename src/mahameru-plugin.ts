@@ -3,6 +3,7 @@ import { type Logger } from "./logger";
 
 export interface BasePluginOptions {
     debug?: boolean;
+    dev?: boolean;
 }
 
 export abstract class MahameruPlugin<O extends BasePluginOptions = BasePluginOptions> {
@@ -73,12 +74,21 @@ export abstract class MahameruPlugin<O extends BasePluginOptions = BasePluginOpt
         this.logger.debug('Destroying... Done');
     }
 
+    public async onDevHRM(changedFile: string): Promise<void | undefined> {
+        if (!this._onDevHRM)
+            return undefined;
+
+        return await this._onDevHRM(changedFile);
+    }
+
+    protected _onDevHRM?(filePath: string): Promise<void> | void;
     protected abstract boot(options?: Partial<O>): Promise<void> | void;
     protected abstract terminate(): Promise<void> | void;
 }
 
 export interface BaseGeneratorOptions {
     debug?: boolean;
+    dev?: boolean;
 }
 
 export abstract class Generator<O extends BaseGeneratorOptions = BaseGeneratorOptions> {
@@ -105,10 +115,21 @@ export abstract class Generator<O extends BaseGeneratorOptions = BaseGeneratorOp
     }
 
     public async generate() {
+        if (!this._generate)
+            return;
+
         this.logger.debug('Generating types...');
         const types = await this._generate();
         this.logger.debug('Types generated', types);
     }
 
-    protected abstract _generate(): Promise<Record<string, any>>;
+    public async onDevHRM(changedFile: string) {
+        if (!this._onDevHRM)
+            return;
+
+        await this._onDevHRM(changedFile);
+    }
+
+    protected _onDevHRM?(filePath: string): Promise<boolean>;
+    protected abstract _generate?(): Promise<Record<string, any>>;
 }
