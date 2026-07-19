@@ -1,76 +1,55 @@
 import { join } from 'node:path';
 
-import { HttpServer } from './http-server';
 import { EventEmitter } from "./event-emitter";
-
-import type { Container } from './container';
-import type { Route } from './route';
-import type { Logger } from './logger';
+import { existsSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import type { InitiatorHandler, Instances } from './types';
+import type { MahameruPlugin } from './mahameru-plugin';
+import { createLogger, type Logger } from './logger';
 
 export type DiatremaEvents = {
-    ready: [data: { mode: "development" | "production"; port: number; host: string; }];
+    ready: [data: { mode: "development" | "production"; port?: number; host?: string; }];
 };
 
 export type DiatremaOptions = {
     dev: boolean;
-    isStandalone: boolean;
+    debug: boolean;
     rootPath: string;
     appPath: string;
-    routesDir: string;
     productionDir: string;
     developmentDir: string;
+    initiatorFilePath?: string;
+    moduleType: "commonjs" | "esm";
 }
-
-export type DiatremaDependencies = {
-    container: Container;
-    route: Route;
-    httpServer: HttpServer;
-    logger: Logger;
-};
 
 export const diatremaDefaultConfig: DiatremaOptions = {
     dev: false,
-    isStandalone: false,
+    debug: false,
     rootPath: process.cwd(),
     get appPath(): string {
-        if (this.isStandalone)
-            return this.rootPath;
-
         return join(this.rootPath, this.dev ? this.developmentDir : this.productionDir);
     },
     productionDir: '.mahameru',
     developmentDir: '.mahameru',
-    routesDir: 'routes'
+    moduleType: 'esm'
 }
 
 /**
  * Main Diatrema class that orchestrates the application lifecycle.
  */
 export default class Diatrema extends EventEmitter<DiatremaEvents> {
-    #initialized = false;
-    #isShuttingDown = false;
-    public readonly options: DiatremaOptions = diatremaDefaultConfig;
-    protected readonly dependencies: DiatremaDependencies;
+    protected _initialized = false;
+    protected _isShuttingDown = false;
+    protected _plugins = new Map<string, MahameruPlugin<any>>();
+    protected logger: Logger;
+    public instances: Instances = {};
+    public readonly options: DiatremaOptions;
 
-    constructor(dependencies: DiatremaDependencies)
-    constructor(
-        initialOptions: Partial<DiatremaOptions>,
-        dependencies: DiatremaDependencies
-    )
-    constructor(
-        arg1: Partial<DiatremaOptions> | DiatremaDependencies,
-        arg2?: DiatremaDependencies
-    ) {
+    constructor(options?: Partial<DiatremaOptions>) {
         super();
 
-        if (typeof arg2 !== 'undefined')
-            this.options = { ...this.options, ...arg1 as Partial<DiatremaOptions> };
-
-        if (typeof arg2 !== 'undefined') {
-            this.dependencies = arg2;
-        } else {
-            this.dependencies = arg1 as DiatremaDependencies;
-        }
+        this.options = { ...diatremaDefaultConfig, ...options };
+        this.logger = createLogger('Diatrema', this.options.debug);
     }
 
     /**
@@ -78,7 +57,7 @@ export default class Diatrema extends EventEmitter<DiatremaEvents> {
      * @returns {boolean}
      */
     get initialized() {
-        return this.#initialized;
+        return this._initialized;
     }
 
     /**
@@ -86,69 +65,110 @@ export default class Diatrema extends EventEmitter<DiatremaEvents> {
      * @returns {boolean}
      */
     get isShuttingDown() {
-        return this.#isShuttingDown;
+        return this._isShuttingDown;
     }
 
-    /**
-     * Initialize the Mahameru server.
-     */
-    async initialize(): Promise<void> {
+    get plugins(): Record<string, MahameruPlugin<any>> {
+        return Object.fromEntries(this._plugins);
+    }
+
+    public async initialize(): Promise<void> {
         try {
-            if (this.#initialized)
+            if (this._initialized)
                 return;
 
-            await this.dependencies.container.discover();
+            await this.loadInitiator();
+
+            for (const plugin of this._plugins.values()) {
+                plugin.setDiatrema(this);
+
+                await plugin.initialize();
+            }
         } catch (error) {
             throw error;
         }
 
-        const { port, host } = await this.dependencies.httpServer.listen();
-        this.#initialized = true;
+        this._initialized = true;
 
-        this.emit('ready', { mode: this.options.dev ? 'development' : 'production', port: port, host: host });
+        this.emit('ready', { mode: this.options.dev ? 'development' : 'production' });
     }
 
-    /**
-     * Hot reload the middleware and routes when a file changes in development mode.
-     */
-    async devHRM(changedFile?: string) {
-        if (!this.#initialized)
+    public setPlugin<T extends MahameruPlugin<any>>(pluginName: string, plugin: T) {
+        this._plugins.set(pluginName, plugin);
+    }
+
+    public getPlugin<T extends MahameruPlugin<any>>(pluginName: string): T | undefined {
+        return this._plugins.get(pluginName) as T | undefined;
+    }
+
+    public async devHRM(changedFile?: string) {
+        if (!this._initialized)
             return
 
         if (changedFile) {
-            if (await this.dependencies.container.onFileChanged(changedFile))
-                this.dependencies.logger.debug(`File changed: ${changedFile}`);
+            // if (await this.dependencies.container.onFileChanged(changedFile))
+            //     this.logger.debug(`File changed: ${changedFile}`);
         }
     }
 
-    /**
-     * Shut down the Mahameru server gracefully.
-     * @returns {Promise<void>}
-     */
-    async shutdown(): Promise<void> {
-        if (this.#isShuttingDown)
+    public async shutdown(): Promise<void> {
+        if (this._isShuttingDown)
             return
 
-        this.#isShuttingDown = true;
+        this._isShuttingDown = true;
 
-        this.dependencies.logger.info('Shutting down Mahameru server...');
+        this.logger.debug('Shutting down...');
 
-        try {
-            this.dependencies.logger.info('Databases destroyed successfully.');
-        } catch (error) {
-            this.dependencies.logger.error('Error destroying databases', error);
+        for (const plugin of this._plugins.values()) {
+            await plugin.destroy();
         }
 
-        if (this.dependencies.httpServer.listening) {
-            try {
-                await this.dependencies.httpServer.close();
-                this.dependencies.logger.info('HTTP server closed successfully.');
-            } catch (error) {
-                this.dependencies.logger.error('Error closing HTTP server', error);
+        this._initialized = false;
+        this.logger.debug('Shutting down... Done');
+    }
+
+    protected async loadInitiator() {
+        if (!this.options.initiatorFilePath)
+            return;
+
+        const result = await this.require<Record<'default', InitiatorHandler>>(this.options.moduleType, this.options.initiatorFilePath);
+
+        if (result) {
+            const handler = this.getDefaultExport<InitiatorHandler>(result, this.options.initiatorFilePath);
+
+            this.instances = await handler();
+            this.logger.debug(`Initiator loaded successfully. Found ${Object.keys(this.instances).length} instances.`);
+        }
+    }
+
+    protected async require<T extends Record<string, unknown> = Record<string, unknown>>(type: "commonjs" | "esm", resolvedFilePath: string): Promise<T | undefined> {
+        const noCache = this.options.dev;
+
+        if (!existsSync(resolvedFilePath))
+            return;
+
+        if (type === "commonjs") {
+            if (noCache) {
+                delete require.cache[resolvedFilePath];
             }
+
+            return require(resolvedFilePath) as T;
         }
 
-        this.#initialized = false;
-        this.dependencies.logger.info('Mahameru server shut down.');
+        let fileUrl = pathToFileURL(resolvedFilePath).href;
+
+        if (noCache)
+            fileUrl += `?update=${Date.now()}`;
+
+        return (await import(fileUrl)) as T;
+    }
+
+    protected getDefaultExport<T>(module: Record<string, T>, filePath: string) {
+        const defaultExportName = Object.keys(module).find((key) => key === 'default');
+
+        if (!defaultExportName)
+            throw new Error(`Module in file '${filePath}' does not have a default export.`);
+
+        return module[defaultExportName];
     }
 }
