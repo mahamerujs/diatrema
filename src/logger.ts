@@ -11,26 +11,20 @@ export const createLogger = (name: string | string[], debug: boolean = false): L
     } else {
         name = name.map(item => `[${item}]`);
     }
+
     return {
         info: (...data: any[]) => {
-            if (debug) {
-                console.log(...name, '[Info]', ...data)
-
-                return
-            }
+            console.log(...name, '[Info]', ...data)
         },
         error: (message, error) => {
             console.error(...name, `[Error] ${message}`, error);
         },
         warn: (...data: any[]) => {
-            if (debug) {
-                console.warn(...name, '[Warn]', ...data)
-            }
+            console.warn(...name, '[Warn]', ...data)
         },
         debug: (...data: any[]) => {
-            if (debug) {
+            if (debug)
                 console.debug(...name, '[Debug]', ...data)
-            }
         }
     };
 };
